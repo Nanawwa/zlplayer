@@ -66,13 +66,13 @@ export default function VideoPlayer({
       miniProgressBar: true,
       theme: '#0A84FF',
       lang: 'zh-cn',
-      moreVideoAttr: {
-        crossOrigin: 'anonymous',
-      },
+      // 不设 crossOrigin：iOS Safari 遇到不支持 CORS 的视频源会直接拒绝
+      // HLS.js 内部自行处理跨域请求
       // HLS 自定义加载（带上 Alist token）
       customType: {
         m3u8: function (video: HTMLVideoElement, url: string) {
           if (Hls.isSupported()) {
+            video.crossOrigin = 'anonymous';
             const hls = new Hls({
               enableWorker: true,
               lowLatencyMode: false,
@@ -118,9 +118,15 @@ export default function VideoPlayer({
     art.on('video:pause', () => onPauseRef.current?.());
     art.on('video:seeked', () => onSeekedRef.current?.());
 
-    // 错误日志
+    // 错误日志 + 用户可见提示
     art.on('error', (err: any) => {
       console.error('[ArtPlayer] 播放错误:', err);
+      art.template.$container.innerHTML = `
+        <div style="color:#ef4444;text-align:center;padding:20px;">
+          <p>视频加载失败</p>
+          <p style="font-size:12px;color:#9ca3af;margin-top:8px;">${art.option.url}</p>
+          <p style="font-size:11px;color:#6b7280;">iOS 请确认视频编码为 H.264/AAC</p>
+        </div>`;
     });
 
     return () => {
