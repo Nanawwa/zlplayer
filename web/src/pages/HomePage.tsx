@@ -33,7 +33,8 @@ export default function HomePage({ sendMessage }: HomePageProps) {
       return '';
     }
   });
-  const [alistUrlInput, setAlistUrlInput] = useState(alistUrl);
+  const defaultAlist = (import.meta.env.VITE_DEFAULT_ALIST_URL as string) || '';
+  const [alistUrlInput, setAlistUrlInput] = useState(alistUrl || defaultAlist);
   const [alistUsername, setAlistUsername] = useState('');
   const [alistPassword, setAlistPassword] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
@@ -164,7 +165,7 @@ export default function HomePage({ sendMessage }: HomePageProps) {
                       setAlistUrlInput('https://' + alistUrlInput.trim());
                     }
                   }}
-                  placeholder="alist.example.com 或 https://alist.example.com"
+                  placeholder={defaultAlist || "输入 Alist 地址，如 https://alist.example.com"}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
                 <p className="text-xs text-gray-400 mt-1">输入域名即可，自动补全 https://</p>
@@ -217,7 +218,7 @@ export default function HomePage({ sendMessage }: HomePageProps) {
             <button
               onClick={() => {
                 setStoreAlistUrl('');
-                setAlistUrlInput('');
+                setAlistUrlInput(defaultAlist);
                 setAlistUsername('');
                 setAlistPassword('');
               }}
