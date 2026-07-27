@@ -9,3 +9,4 @@ Thumbs.db
 *.crt
 server/ssl/
 *.tsbuildinfo
+.claude/settings.local.json
