@@ -27,7 +27,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   # ── Nginx 反向代理 ──
   nginx:
@@ -38,7 +38,7 @@ services:
       - "80:80"
       # - "443:443"  # SSL 端口，配置证书后取消注释
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
       # - ./ssl:/etc/ssl:ro  # SSL 证书目录
       # - ../web/dist:/usr/share/nginx/html:ro  # Web 构建产物
     depends_on:
