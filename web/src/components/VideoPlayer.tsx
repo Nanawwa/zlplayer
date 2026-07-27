@@ -47,12 +47,14 @@ export default function VideoPlayer({
 
     console.log('[ArtPlayer] src:', src, 'hls:', isHls, 'safari:', isSafari);
 
-    // iOS Safari 用原生 video 标签处理 HLS，不用 ArtPlayer 的 customType
-    // 避免 HLS.js 与 Safari 原生 HLS 冲突
+    // iOS Safari 用原生处理 HLS，不用 HLS.js（避免冲突）
+    // mp4 文件或 Safari 都不需要 customType
+    const needHlsJs = isHls && !isSafari;
+
     const art = new Artplayer({
       container: containerRef.current,
       url: src,
-      type: (isHls && isSafari) ? 'auto' : (isHls ? 'm3u8' : 'auto'),
+      type: isHls ? 'm3u8' : 'auto',
       autoplay: false,
       autoSize: true,
       autoMini: true,
@@ -72,31 +74,33 @@ export default function VideoPlayer({
       moreVideoAttr: {
         playsInline: true,
       },
-      customType: (isHls && !isSafari) ? {
-        m3u8: function (video: HTMLVideoElement, url: string) {
-          if (Hls.isSupported()) {
-            video.crossOrigin = 'anonymous';
-            const hls = new Hls({
-              enableWorker: true,
-              lowLatencyMode: false,
-              xhrSetup: (xhr) => {
-                if (alistToken) {
-                  xhr.setRequestHeader('Authorization', alistToken);
+      ...(needHlsJs ? {
+        customType: {
+          m3u8: function (video: HTMLVideoElement, url: string) {
+            if (Hls.isSupported()) {
+              video.crossOrigin = 'anonymous';
+              const hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: false,
+                xhrSetup: (xhr) => {
+                  if (alistToken) {
+                    xhr.setRequestHeader('Authorization', alistToken);
+                  }
+                },
+              });
+              hls.on(Hls.Events.ERROR, (_event, data) => {
+                if (data.fatal) {
+                  console.error('[ArtPlayer] HLS 致命错误:', data.type, data.details);
                 }
-              },
-            });
-            hls.on(Hls.Events.ERROR, (_event, data) => {
-              if (data.fatal) {
-                console.error('[ArtPlayer] HLS 致命错误:', data.type, data.details);
-              }
-            });
-            hls.loadSource(url);
-            hls.attachMedia(video);
-          } else {
-            video.src = url;
-          }
-        },
-      } as any : undefined,
+              });
+              hls.loadSource(url);
+              hls.attachMedia(video);
+            } else {
+              video.src = url;
+            }
+          },
+        } as any,
+      } : {}),
     });
 
     artRef.current = art;
