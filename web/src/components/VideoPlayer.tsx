@@ -43,13 +43,6 @@ export default function VideoPlayer({
 
     const alistToken = getAlistToken();
     const isHls = src.endsWith('.m3u8');
-    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-
-    console.log('[ArtPlayer] src:', src, 'hls:', isHls, 'safari:', isSafari);
-
-    // iOS Safari 用原生处理 HLS，不用 HLS.js（避免冲突）
-    // mp4 文件或 Safari 都不需要 customType
-    const needHlsJs = isHls && !isSafari;
 
     const art = new Artplayer({
       container: containerRef.current,
@@ -71,36 +64,31 @@ export default function VideoPlayer({
       miniProgressBar: true,
       theme: '#0A84FF',
       lang: 'zh-cn',
-      moreVideoAttr: {
-        playsInline: true,
-      },
-      ...(needHlsJs ? {
-        customType: {
-          m3u8: function (video: HTMLVideoElement, url: string) {
-            if (Hls.isSupported()) {
-              video.crossOrigin = 'anonymous';
-              const hls = new Hls({
-                enableWorker: true,
-                lowLatencyMode: false,
-                xhrSetup: (xhr) => {
-                  if (alistToken) {
-                    xhr.setRequestHeader('Authorization', alistToken);
-                  }
-                },
-              });
-              hls.on(Hls.Events.ERROR, (_event, data) => {
-                if (data.fatal) {
-                  console.error('[ArtPlayer] HLS 致命错误:', data.type, data.details);
+      customType: {
+        m3u8: function (video: HTMLVideoElement, url: string) {
+          if (Hls.isSupported()) {
+            video.crossOrigin = 'anonymous';
+            const hls = new Hls({
+              enableWorker: true,
+              lowLatencyMode: false,
+              xhrSetup: (xhr) => {
+                if (alistToken) {
+                  xhr.setRequestHeader('Authorization', alistToken);
                 }
-              });
-              hls.loadSource(url);
-              hls.attachMedia(video);
-            } else {
-              video.src = url;
-            }
-          },
-        } as any,
-      } : {}),
+              },
+            });
+            hls.on(Hls.Events.ERROR, (_event, data) => {
+              if (data.fatal) {
+                console.error('[ArtPlayer] HLS 致命错误:', data.type, data.details);
+              }
+            });
+            hls.loadSource(url);
+            hls.attachMedia(video);
+          } else {
+            video.src = url;
+          }
+        },
+      } as any,
     });
 
     artRef.current = art;
