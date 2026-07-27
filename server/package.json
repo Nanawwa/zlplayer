@@ -1,0 +1,16 @@
+{
+  "name": "zlplay-sync-server",
+  "version": "1.0.0",
+  "description": "Real-time video sync server for ZlPlay",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": ["websocket", "video-sync", "alist"],
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.0",
+    "dotenv": "^16.4.5"
+  }
+}
