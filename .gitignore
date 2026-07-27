@@ -9,4 +9,3 @@ Thumbs.db
 *.crt
 server/ssl/
 *.tsbuildinfo
-.claude/
