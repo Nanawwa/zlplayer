@@ -17,6 +17,10 @@ export default function HomePage({ sendMessage }: HomePageProps) {
   const setStoreAlistUrl = useRoomStore((s) => s.setAlistUrl);
   const setCurrentVideo = useRoomStore((s) => s.setCurrentVideo);
   const setPlayerState = useRoomStore((s) => s.setPlayerState);
+  const wsConnected = useRoomStore((s) => s.wsConnected);
+
+  // 操作反馈
+  const [toast, setToast] = useState<string | null>(null);
 
   // Alist 连接错误
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -87,46 +91,65 @@ export default function HomePage({ sendMessage }: HomePageProps) {
     [setCurrentVideo, setPlayerState]
   );
 
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
   // 创建房间
   const handleCreateRoom = useCallback(() => {
+    if (!wsConnected) {
+      showToast('未连接到服务器，请稍后再试');
+      return;
+    }
     sendMessage('create_room', {
       password: roomPassword,
       name: nickName || undefined,
     });
     setShowCreateModal(false);
-  }, [sendMessage, roomPassword, nickName]);
+  }, [sendMessage, roomPassword, nickName, wsConnected, showToast]);
 
   // 加入房间
   const handleJoinRoom = useCallback(() => {
     if (!roomCode.trim()) return;
+    if (!wsConnected) {
+      showToast('未连接到服务器，请稍后再试');
+      return;
+    }
     sendMessage('join_room', {
       code: roomCode.toUpperCase(),
       password: roomPassword,
       name: nickName || undefined,
     });
     setShowJoinModal(false);
-  }, [sendMessage, roomCode, roomPassword, nickName]);
+  }, [sendMessage, roomCode, roomPassword, nickName, wsConnected, showToast]);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* 顶部导航 */}
       <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-primary-500">🎬 ZlPlay</h1>
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold text-primary-500">🎬 ZlPlay</h1>
+            <div className={`w-2 h-2 rounded-full hidden sm:block ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`}
+              title={wsConnected ? '已连接' : '未连接'} />
+          </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
             <button onClick={cycleTheme} className="text-lg px-1" title="切换主题">{themeIcon}</button>
             <button
               onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-primary-500 text-white text-sm font-medium rounded-lg hover:bg-primary-600 transition-colors"
+              disabled={!wsConnected}
+              className="px-3 md:px-4 py-2 bg-primary-500 text-white text-xs md:text-sm font-medium rounded-lg hover:bg-primary-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              + 创建房间
+              + 创建
             </button>
             <button
               onClick={() => setShowJoinModal(true)}
-              className="px-4 py-2 border border-primary-500 text-primary-500 text-sm font-medium rounded-lg hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
+              disabled={!wsConnected}
+              className="px-3 md:px-4 py-2 border border-primary-500 text-primary-500 text-xs md:text-sm font-medium rounded-lg hover:bg-primary-50 dark:hover:bg-primary-900/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              加入房间
+              加入
             </button>
           </div>
         </div>
@@ -376,6 +399,12 @@ export default function HomePage({ sendMessage }: HomePageProps) {
                 d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
           </button>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[100] px-4 py-3 bg-gray-900 text-white text-sm rounded-xl shadow-lg">
+          {toast}
         </div>
       )}
     </div>
