@@ -25,11 +25,11 @@ function getWsUrl(): string {
     if (manual) return manual;
   } catch { /* ignore */ }
 
-  // 2. 生产环境：自动从当前页面 URL 推断
+  // 2. 生产环境：自动从当前页面 URL 推断（nginx 在 /ws 路径代理 WebSocket）
   if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    return `${protocol}//${host}`;
+    return `${protocol}//${host}/ws`;
   }
 
   // 3. 环境变量
