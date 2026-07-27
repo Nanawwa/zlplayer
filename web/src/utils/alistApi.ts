@@ -192,8 +192,8 @@ export async function searchFiles(
 
 /**
  * 获取视频播放链接
- * 调 /api/fs/get 拿 raw_url 或 sign，拼到 Alist 域名下
- * 始终走 Alist 自己的 /d/ 路径，避免跨域问题（iOS Safari 截拦第三方域名的视频请求）
+ * 始终走 Alist 的 /d/ 路径（Alist 开启本机代理 + 代理 range 后自行处理 Range 请求）
+ * 不走 raw_url（云盘直链没有 CORS / 不支持 Range，iOS Safari 无法播放）
  * @param path - Alist 文件路径
  */
 export async function getPlayUrl(path: string): Promise<string> {
@@ -204,43 +204,10 @@ export async function getPlayUrl(path: string): Promise<string> {
 
   const cleanPath = encodeURI(path.startsWith('/') ? path : `/${path}`);
   const token = getAlistToken();
-
-  try {
-    const info = await getFileInfo(path);
-    if (info.code === 200 && info.data) {
-      const data = info.data as Record<string, any>;
-
-      // raw_url 且和 Alist 同域 → 直接用
-      if (data.raw_url && isSameOrigin(baseUrl, data.raw_url as string)) {
-        return data.raw_url as string;
-      }
-
-      // 有 sign → 走 /d/ + sign
-      if (data.sign) {
-        const sep = cleanPath.includes('?') ? '&' : '?';
-        const params = [`sign=${encodeURIComponent(data.sign as string)}`];
-        if (token) params.push(`token=${encodeURIComponent(token)}`);
-        return `${baseUrl}/d${cleanPath}?${params.join('&')}`;
-      }
-
-      // raw_url 非同域也返回（让浏览器自行处理）
-      if (data.raw_url) return data.raw_url as string;
-    }
-  } catch (e) {
-    console.warn('[Alist] /api/fs/get 失败:', e);
-  }
-
   const sep = cleanPath.includes('?') ? '&' : '?';
   const query = token ? `${sep}token=${encodeURIComponent(token)}` : '';
-  return `${baseUrl}/d${cleanPath}${query}`;
-}
 
-function isSameOrigin(base: string, url: string): boolean {
-  try {
-    return new URL(url).origin === new URL(base).origin;
-  } catch {
-    return false;
-  }
+  return `${baseUrl}/d${cleanPath}${query}`;
 }
 
 /**

@@ -43,13 +43,16 @@ export default function VideoPlayer({
 
     const alistToken = getAlistToken();
     const isHls = src.endsWith('.m3u8');
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
-    console.log('[ArtPlayer] 初始化, src:', src, 'isHls:', isHls);
+    console.log('[ArtPlayer] src:', src, 'hls:', isHls, 'safari:', isSafari);
 
+    // iOS Safari 用原生 video 标签处理 HLS，不用 ArtPlayer 的 customType
+    // 避免 HLS.js 与 Safari 原生 HLS 冲突
     const art = new Artplayer({
       container: containerRef.current,
       url: src,
-      type: isHls ? 'm3u8' : 'auto',
+      type: (isHls && isSafari) ? 'auto' : (isHls ? 'm3u8' : 'auto'),
       autoplay: false,
       autoSize: true,
       autoMini: true,
@@ -66,10 +69,10 @@ export default function VideoPlayer({
       miniProgressBar: true,
       theme: '#0A84FF',
       lang: 'zh-cn',
-      // 不设 crossOrigin：iOS Safari 遇到不支持 CORS 的视频源会直接拒绝
-      // HLS.js 内部自行处理跨域请求
-      // HLS 自定义加载（带上 Alist token）
-      customType: {
+      moreVideoAttr: {
+        playsInline: true,
+      },
+      customType: (isHls && !isSafari) ? {
         m3u8: function (video: HTMLVideoElement, url: string) {
           if (Hls.isSupported()) {
             video.crossOrigin = 'anonymous';
@@ -90,11 +93,10 @@ export default function VideoPlayer({
             hls.loadSource(url);
             hls.attachMedia(video);
           } else {
-            console.warn('[ArtPlayer] 浏览器不支持 HLS.js，尝试原生播放');
             video.src = url;
           }
         },
-      } as any,
+      } as any : undefined,
     });
 
     artRef.current = art;
