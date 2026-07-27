@@ -124,8 +124,7 @@ export default function VideoPlayer({
       art.template.$container.innerHTML = `
         <div style="color:#ef4444;text-align:center;padding:20px;">
           <p>视频加载失败</p>
-          <p style="font-size:12px;color:#9ca3af;margin-top:8px;">${art.option.url}</p>
-          <p style="font-size:11px;color:#6b7280;">iOS 请确认视频编码为 H.264/AAC</p>
+          <p style="font-size:11px;color:#6b7280;margin-top:8px;word-break:break-all;">${art.option.url}</p>
         </div>`;
     });
 

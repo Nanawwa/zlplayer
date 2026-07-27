@@ -191,9 +191,9 @@ export async function searchFiles(
 }
 
 /**
- * 获取视频的真实播放链接
- * 先调用 /api/fs/get 获取 raw_url（网盘挂载的真实地址），
- * 如果 API 不返回则回退到 /p/ 代理路径
+ * 获取视频播放链接
+ * 优先使用 /p/ 代理（Alist 转发并添加 CORS 头，兼容 iOS/Android/桌面）
+ * raw_url 直链可能缺少 CORS 头导致 iOS Safari 拦截
  * @param path - Alist 文件路径
  */
 export async function getPlayUrl(path: string): Promise<string> {
@@ -202,22 +202,11 @@ export async function getPlayUrl(path: string): Promise<string> {
     throw new Error('请先设置 Alist 服务器地址');
   }
 
-  try {
-    // 先尝试通过 API 获取真正的直链（raw_url）
-    const info = await getFileInfo(path);
-    if (info.code === 200 && info.data?.raw_url) {
-      return info.data.raw_url;
-    }
-    // 部分存储驱动不返回 raw_url，回退到代理路径
-  } catch (e) {
-    console.warn('[Alist] /api/fs/get 失败，回退到代理路径:', e);
-  }
-
-  // 回退：构造 /p/ 代理路径（Alist 转发 + CORS 头）
   const cleanPath = encodeURI(path.startsWith('/') ? path : `/${path}`);
   const token = getAlistToken();
   const sep = cleanPath.includes('?') ? '&' : '?';
   const query = token ? `${sep}token=${encodeURIComponent(token)}` : '';
+
   return `${baseUrl}/p${cleanPath}${query}`;
 }
 
