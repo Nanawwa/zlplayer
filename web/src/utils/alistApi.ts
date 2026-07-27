@@ -192,8 +192,8 @@ export async function searchFiles(
 
 /**
  * 获取视频播放链接
- * 优先使用 /p/ 代理（Alist 转发并添加 CORS 头，兼容 iOS/Android/桌面）
- * raw_url 直链可能缺少 CORS 头导致 iOS Safari 拦截
+ * 1. 调 /api/fs/get 拿 raw_url（云盘已签名直链，如中国移动云盘）
+ * 2. 没有 raw_url 则走 /d/ 原始链接
  * @param path - Alist 文件路径
  */
 export async function getPlayUrl(path: string): Promise<string> {
@@ -204,10 +204,18 @@ export async function getPlayUrl(path: string): Promise<string> {
 
   const cleanPath = encodeURI(path.startsWith('/') ? path : `/${path}`);
   const token = getAlistToken();
-  const sep = cleanPath.includes('?') ? '&' : '?';
-  const query = token ? `${sep}token=${encodeURIComponent(token)}` : '';
+  const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : '';
 
-  return `${baseUrl}/p${cleanPath}${query}`;
+  try {
+    const info = await getFileInfo(path);
+    if (info.code === 200 && info.data?.raw_url) {
+      return info.data.raw_url;
+    }
+  } catch (e) {
+    console.warn('[Alist] /api/fs/get 失败:', e);
+  }
+
+  return `${baseUrl}/d${cleanPath}${tokenQuery}`;
 }
 
 /**
