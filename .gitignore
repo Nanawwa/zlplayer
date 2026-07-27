@@ -8,4 +8,5 @@ Thumbs.db
 *.key
 *.crt
 server/ssl/
+*.tsbuildinfo
 .claude/
