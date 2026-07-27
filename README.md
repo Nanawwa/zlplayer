@@ -115,7 +115,27 @@ docker-compose down
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| VITE_WS_URL | ws://localhost:8080 | WebSocket 地址 |
+| VITE_WS_URL | (自动检测) | WebSocket 地址，见下方说明 |
+| VITE_DEFAULT_ALIST_URL | (空) | 预填的 Alist 地址 |
+
+**WebSocket 地址自动检测逻辑：**
+
+```
+优先级从高到低：
+1. 浏览器中手动设置（localStorage）
+2. 生产环境自动推断（当前页面 https→wss, http→ws）
+3. .env 中的 VITE_WS_URL
+4. ws://localhost:8080（开发默认值）
+```
+
+生产环境部署后不需要任何配置，浏览器会自动用当前域名连接 WebSocket。例如：
+- 访问 `https://video.example.com` → 自动连接 `wss://video.example.com`
+- Nginx 需要同时代理 HTTP 和 WebSocket（参考 `server/nginx/conf.d/default.conf`）
+
+如果 WebSocket 和网页不在同一域名，可以在浏览器控制台手动指定：
+```js
+localStorage.setItem('zlplay_ws_url', 'wss://ws.example.com')
+```
 
 ## WebSocket 协议
 

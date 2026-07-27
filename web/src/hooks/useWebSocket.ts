@@ -11,15 +11,33 @@ import type { WSMessage, ChatMessage } from '../types';
  * - 消息分发
  */
 
-// 默认 WebSocket 地址
-const DEFAULT_WS_URL = 'ws://localhost:8080';
-
+/**
+ * 获取 WebSocket 连接地址
+ * 优先级：localStorage 手动指定 > 生产环境自动检测 > 环境变量 > 默认值
+ *
+ * 生产环境：自动使用当前页面的域名（http→ws, https→wss）
+ * 开发环境：默认 ws://localhost:8080
+ */
 function getWsUrl(): string {
+  // 1. 用户手动指定的地址
   try {
-    return localStorage.getItem('zlplay_ws_url') || DEFAULT_WS_URL;
-  } catch {
-    return DEFAULT_WS_URL;
+    const manual = localStorage.getItem('zlplay_ws_url');
+    if (manual) return manual;
+  } catch { /* ignore */ }
+
+  // 2. 生产环境：自动从当前页面 URL 推断
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    return `${protocol}//${host}`;
   }
+
+  // 3. 环境变量
+  const envUrl = (import.meta as any).env?.VITE_WS_URL;
+  if (envUrl) return envUrl;
+
+  // 4. 开发环境默认值
+  return 'ws://localhost:8080';
 }
 
 export function setWsUrl(url: string): void {
