@@ -3,9 +3,11 @@ version: '3.8'
 services:
   # ── 同步服务器 ──
   sync-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/nanawwa/zlplayer:master
+    # 如需本地构建，注释掉 image 行，取消注释 build 段：
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     container_name: zlplay-sync-server
     restart: unless-stopped
     ports:
