@@ -2,7 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── 基础样式 ── */
+/*
+ * Z-index 层级规范:
+ *   z-0      默认
+ *   z-10     sticky header
+ *   z-20     dropdown
+ *   z-40     modal 遮罩
+ *   z-50     modal 内容 / mobile panel
+ *   z-[100]  toast
+ */
 *,
 *::before,
 *::after {
@@ -13,6 +21,11 @@ html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
+}
+
+#root {
+  min-height: 100%;
+  height: auto;
 }
 
 body {
