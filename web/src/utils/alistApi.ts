@@ -5,11 +5,8 @@ import type { AlistItem, AlistListResponse, AlistFileInfoResponse } from '../typ
  * 假设 Alist 提供标准的 /api/fs/list 和 /api/fs/get 接口
  */
 
-const DEFAULT_ALIST_URL = '';
+const DEFAULT_ALIST_URL = (import.meta.env.VITE_DEFAULT_ALIST_URL as string) || '';
 
-/**
- * 设置 Alist 基础地址（存储在 localStorage）
- */
 export function getAlistBaseUrl(): string {
   try {
     return localStorage.getItem('zlplay_alist_url') || DEFAULT_ALIST_URL;
@@ -190,30 +187,49 @@ export async function searchFiles(
   });
 }
 
+// 记住最后一次播放的文件路径，供重试用
+let _lastPlayPath = '';
+
 /**
  * 获取视频播放链接
- * 先通过 /api/fs/get 获取 raw_url，失败时回退到 /d/ 路径
+ * 页面部署在 Alist 同域(zl-only.fun/zlplay)，Referer 一致，CDN 直接放行
+ * 优先 raw_url（302 模式），失败回退 /d/
  * @param path - Alist 文件路径
  */
 export async function getPlayUrl(path: string): Promise<string> {
+  _lastPlayPath = path;
   const baseUrl = getAlistBaseUrl();
   if (!baseUrl) {
     throw new Error('请先设置 Alist 服务器地址');
   }
 
+  // raw_url 带签名，直接可用
   try {
     const info = await getFileInfo(path);
     if (info.code === 200 && info.data?.raw_url) {
       return info.data.raw_url;
     }
   } catch (e) {
-    console.warn('[Alist] /api/fs/get 失败, 回退到 /d/:', e);
+    console.warn('[Alist] /api/fs/get 失败:', e);
   }
 
+  // 回退：/d/ 路径
   const cleanPath = encodeURI(path.startsWith('/') ? path : `/${path}`);
   const token = getAlistToken();
   const query = token ? `?token=${encodeURIComponent(token)}` : '';
   return `${baseUrl}/d${cleanPath}${query}`;
+}
+
+/**
+ * 重新获取上一次播放的视频链接（用于播放失败后的手动重试）
+ * 会重新调用 /api/fs/get 获取全新的签名链接
+ */
+export async function retryGetPlayUrl(): Promise<string> {
+  if (!_lastPlayPath) {
+    throw new Error('没有可重试的视频');
+  }
+  console.log('[Alist] 重试获取播放链接:', _lastPlayPath);
+  return getPlayUrl(_lastPlayPath);
 }
 
 /**

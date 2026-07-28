@@ -235,6 +235,25 @@ class RoomManager {
   }
 
   /**
+   * 获取可发现的房间列表（公开、非空房间）
+   */
+  getDiscoverableRooms() {
+    const list = [];
+    for (const room of this.rooms.values()) {
+      if (room.members.size === 0) continue;
+      if (room.password) continue; // 有密码不公开
+      const owner = room.members.get(room.ownerId);
+      list.push({
+        code: room.code,
+        memberCount: room.members.size,
+        videoTitle: room.currentVideo?.title || null,
+        ownerName: owner?.name || '未知',
+      });
+    }
+    return list;
+  }
+
+  /**
    * 获取统计信息
    * @returns {{ rooms: number, online: number, totalMessages: number }}
    */

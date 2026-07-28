@@ -7,7 +7,7 @@
  * - 消息采用 discriminated union，类型安全
  */
 
-// ── 消息类型定义 ──
+// 消息类型定义
 
 export interface PlayMessage {
   type: 'play';
@@ -57,7 +57,7 @@ export type SyncCommand =
   | ChangeVideoMessage
   | SyncResponseMessage;
 
-// ── 同步状态 ──
+// 同步状态
 
 export type SyncStatus =
   | 'idle'        // 未加入房间
@@ -66,7 +66,7 @@ export type SyncStatus =
   | 'recovering'  // 偏差较大，正在 seek 追赶
   | 'desynced';   // 失去同步（网络异常等）
 
-// ── 配置常量 ──
+// 配置常量
 
 export const SYNC_CONFIG = {
   /** 校准间隔（秒） */
@@ -81,8 +81,8 @@ export const SYNC_CONFIG = {
   /** 失去同步阈值：偏差超过此值标记 DESYNCED */
   DESYNC_THRESHOLD: 5.0,
 
-  /** 速率调整比例增益 */
-  RATE_KP: 0.8,
+  /** 速率调整比例增益（0.3 避免振荡） */
+  RATE_KP: 0.3,
 
   /** 最小/最大播放速率 */
   MIN_RATE: 0.5,
@@ -98,7 +98,7 @@ export const SYNC_CONFIG = {
   MAX_RTT: 2.0,
 } as const;
 
-// ── 时间戳工具 ──
+// 时间戳工具
 
 /** 获取高精度本地时间（秒），用于时间差计算 */
 export function nowSeconds(): number {
@@ -110,7 +110,7 @@ export function unixMs(): number {
   return Date.now();
 }
 
-// ── RTT 计算 ──
+// RTT 计算
 
 /** RTT 追踪器 */
 export class RTTTracker {
@@ -143,7 +143,7 @@ export class RTTTracker {
   }
 }
 
-// ── 延迟补偿 ──
+// 延迟补偿
 
 /**
  * 计算延迟补偿后的目标位置
@@ -165,7 +165,7 @@ export function compensatePosition(
   // 从远端发来到我方收到，经历的时间 ≈ RTT/2
   // 这段时间内远端视频继续播放，所以需要加上这段时间的播放量
   const elapsed = (Date.now() - remoteTimestamp) / 1000;
-  const delay = Math.min(elapsed, rtt); // 取较小值防止异常跳变
+  const delay = Math.min(Math.max(0, elapsed), 60); // 最多补偿 60 秒
 
   return remotePosition + delay;
 }
@@ -185,8 +185,10 @@ export function calcDeviation(localPosition: number, remotePosition: number): nu
 export function calcPlaybackRate(deviation: number): number {
   if (Math.abs(deviation) < SYNC_CONFIG.TINY_DEVIATION) return 1.0;
 
-  // 比例控制：本地落后 → 加速，本地超前 → 减速
-  const rate = 1.0 + deviation * SYNC_CONFIG.RATE_KP;
+  // deviation = local - remote
+  // 本地落后 (负) → 加速追赶: rate = 1.0 - (-0.5)*Kp = 1.15 ✓
+  // 本地超前 (正) → 减速等待: rate = 1.0 - 0.5*Kp = 0.85    ✓
+  const rate = 1.0 - deviation * SYNC_CONFIG.RATE_KP;
 
   return Math.max(SYNC_CONFIG.MIN_RATE, Math.min(SYNC_CONFIG.MAX_RATE, rate));
 }

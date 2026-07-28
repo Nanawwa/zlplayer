@@ -10,3 +10,4 @@ Thumbs.db
 server/ssl/
 *.tsbuildinfo
 .claude/settings.local.json
+*.har

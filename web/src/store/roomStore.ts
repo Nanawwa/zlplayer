@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Member, PlayerState, VideoInfo, ChatMessage } from '../types';
+import type { Member, PlayerState, VideoInfo, ChatMessage, RoomSummary } from '../types';
 
 /**
  * 页面路由状态
@@ -43,7 +43,10 @@ interface RoomState {
   /** Alist 服务器地址 */
   alistUrl: string;
 
-  // ── actions ──
+  /** 可发现的活跃房间 */
+  availableRooms: RoomSummary[];
+
+  // actions
 
   /** 设置当前页面 */
   setPage: (page: PageView) => void;
@@ -81,6 +84,9 @@ interface RoomState {
   /** 设置 Alist 地址 */
   setAlistUrl: (url: string) => void;
 
+  /** 设置可用房间列表 */
+  setAvailableRooms: (rooms: RoomSummary[]) => void;
+
   /** 重置房间状态 */
   resetRoom: () => void;
 }
@@ -97,7 +103,8 @@ const initialRoom = {
   playerState: { playing: false, position: 0, timestamp: 0 },
   wsConnected: false,
   wsError: null,
-  alistUrl: localStorage.getItem('zlplay_alist_url') || '',
+  alistUrl: localStorage.getItem('zlplay_alist_url') || (import.meta.env.VITE_DEFAULT_ALIST_URL as string) || '',
+  availableRooms: [],
 };
 
 export const useRoomStore = create<RoomState>((set) => ({
@@ -137,6 +144,8 @@ export const useRoomStore = create<RoomState>((set) => ({
     localStorage.setItem('zlplay_alist_url', url);
     set({ alistUrl: url });
   },
+
+  setAvailableRooms: (rooms) => set({ availableRooms: rooms }),
 
   resetRoom: () =>
     set({

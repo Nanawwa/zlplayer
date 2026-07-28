@@ -21,7 +21,9 @@ export type WSMessageType =
   | 'pong'
   | 'connected'
   | 'error'
-  | 'server_shutdown';
+  | 'server_shutdown'
+  | 'list_rooms'
+  | 'room_list';
 
 /** 服务器发来的消息 */
 export interface WSMessage {
@@ -56,6 +58,14 @@ export interface SyncResponse {
   members: Member[];
   currentVideo: VideoInfo | null;
   playerState: PlayerState;
+}
+
+/** 可发现的房间摘要 */
+export interface RoomSummary {
+  code: string;
+  memberCount: number;
+  videoTitle: string | null;
+  ownerName: string;
 }
 
 /** 聊天消息 */

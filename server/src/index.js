@@ -84,11 +84,23 @@ const httpServer = createServer((req, res) => {
   // CORS 头
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     return res.end();
+  }
+
+  const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+  // ── 视频代理：解决云盘 CDN 跨域 / Referer 校验问题 ──
+  if (parsedUrl.pathname === '/proxy-video') {
+    const targetUrl = parsedUrl.searchParams.get('url');
+    if (!targetUrl) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: '缺少 url 参数' }));
+    }
+    return proxyVideo(req, res, targetUrl);
   }
 
   if (req.url === '/health') {
@@ -180,6 +192,99 @@ wss.on('connection', (ws) => {
     log(`WebSocket 错误 (${clientId}): ${err.message}`, 'error');
   });
 });
+
+// ── 视频代理 ───────────────────────────────────────────
+/**
+ * 代理视频流，绕过云盘 CDN 的 Referer / Sec-Fetch 跨域校验
+ * 浏览器 → 本服务(同源) → CDN → 流式返回
+ * 支持 Range 请求（拖动进度条）
+ */
+function proxyVideo(req, res, targetUrl) {
+  const protocol = targetUrl.startsWith('https') ? require('https') : require('http');
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': '*/*',
+    'Accept-Encoding': 'identity', // 不要压缩，直接流式传递
+    'Connection': 'keep-alive',
+  };
+
+  // 转发 Range 请求（支持拖动进度条）
+  if (req.headers.range) {
+    headers['Range'] = req.headers.range;
+  }
+
+  log(`代理视频: ${targetUrl.slice(0, 80)}...`, 'debug');
+
+  const proxyReq = protocol.get(targetUrl, { headers, timeout: 30000 }, (proxyRes) => {
+    const { statusCode, headers: resHeaders } = proxyRes;
+
+    // 处理重定向（CDN 可能有多次跳转）
+    if (statusCode >= 300 && statusCode < 400 && resHeaders.location) {
+      const redirectUrl = new URL(resHeaders.location, targetUrl).href;
+      proxyRes.destroy();
+      return proxyVideo(req, res, redirectUrl);
+    }
+
+    if (!statusCode || statusCode >= 400) {
+      res.writeHead(statusCode || 502, { 'Content-Type': 'text/plain' });
+      res.end(`Proxy error: upstream returned ${statusCode}`);
+      log(`代理失败: ${targetUrl.slice(0, 60)}... → ${statusCode}`, 'error');
+      return;
+    }
+
+    // 设置响应头
+    const outHeaders = {
+      'Content-Type': resHeaders['content-type'] || 'video/mp4',
+      'Accept-Ranges': 'bytes',
+      'Access-Control-Allow-Origin': '*',
+    };
+
+    if (resHeaders['content-length']) {
+      outHeaders['Content-Length'] = resHeaders['content-length'];
+    }
+    if (resHeaders['content-range']) {
+      outHeaders['Content-Range'] = resHeaders['content-range'];
+      res.writeHead(206, outHeaders);
+    } else if (req.headers.range) {
+      // 上游不支持 Range，但我们请求了 Range，返回全部内容
+      res.writeHead(200, outHeaders);
+    } else {
+      res.writeHead(200, outHeaders);
+    }
+
+    proxyRes.pipe(res);
+
+    proxyRes.on('error', (err) => {
+      log(`代理流错误: ${err.message}`, 'error');
+      if (!res.headersSent) {
+        res.writeHead(500);
+      }
+      res.end();
+    });
+  });
+
+  proxyReq.on('error', (err) => {
+    log(`代理请求失败: ${err.message}`, 'error');
+    if (!res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'text/plain' });
+      res.end(`Proxy error: ${err.message}`);
+    }
+  });
+
+  proxyReq.on('timeout', () => {
+    proxyReq.destroy();
+    if (!res.headersSent) {
+      res.writeHead(504, { 'Content-Type': 'text/plain' });
+      res.end('Proxy timeout');
+    }
+  });
+
+  // 客户端断开时取消代理请求
+  req.on('close', () => {
+    proxyReq.destroy();
+  });
+}
 
 // ── 消息路由 ───────────────────────────────────────────
 /**
@@ -333,7 +438,7 @@ function handleMessage(ws, msg) {
         roomManager.updatePlayerState(ws.currentRoom, {
           playing: type === 'play' ? true : type === 'pause' ? false : room.playerState.playing,
           position: payload.position ?? room.playerState.position,
-          timestamp: payload.timestamp || Date.now(),
+          timestamp: payload.clientTimestamp || payload.timestamp || Date.now(),
         });
 
         roomManager.touchRoom(ws.currentRoom);
@@ -341,7 +446,7 @@ function handleMessage(ws, msg) {
         // 广播给其他人
         broadcast(room, ws.clientId, type, {
           position: payload.position,
-          timestamp: payload.timestamp || Date.now(),
+          timestamp: payload.clientTimestamp || payload.timestamp || Date.now(),
           senderId: ws.clientId,
         });
         break;
@@ -387,6 +492,13 @@ function handleMessage(ws, msg) {
           currentVideo: room.currentVideo,
           playerState: room.playerState,
         });
+        break;
+      }
+
+      // ── 房间发现 ──
+      case 'list_rooms': {
+        const rooms = roomManager.getDiscoverableRooms();
+        send(ws, 'room_list', { rooms });
         break;
       }
 

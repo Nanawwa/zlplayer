@@ -234,6 +234,11 @@ export function useWebSocket(onRemoteMsg?: (msg: any) => void) {
         break;
       }
 
+      case 'room_list': {
+        useRoomStore.getState().setAvailableRooms((payload.rooms as any[]) || []);
+        break;
+      }
+
       default:
         console.log('[WS] 未处理的消息类型:', type);
     }
@@ -277,6 +282,13 @@ export function useWebSocket(onRemoteMsg?: (msg: any) => void) {
         setWsConnected(true);
         setWsError(null);
         reconnectAttemptsRef.current = 0;
+
+        // 重连后重新加入房间
+        const st = useRoomStore.getState();
+        if (st.roomCode && st.currentPage === 'room') {
+          console.log('[WS] 重连后重新加入房间:', st.roomCode);
+          ws.send(JSON.stringify({ type: 'join_room', code: st.roomCode, password: '' }));
+        }
 
         // 启动心跳
         heartbeatTimerRef.current = window.setInterval(() => {
