@@ -1,4 +1,3 @@
-/** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   darkMode: 'class',
@@ -17,6 +16,9 @@ export default {
           800: '#004990',
           900: '#003668',
         },
+      },
+      padding: {
+        safe: 'env(safe-area-inset-bottom)',
       },
     },
   },

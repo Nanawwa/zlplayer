@@ -17,10 +17,11 @@
 
 | 层 | 技术 |
 |---|---|
-| 服务器 | Node.js, ws |
+| 服务器 | Node.js, ws, HTTP 视频代理 |
 | 前端 | React 18, TypeScript, Vite, Tailwind CSS |
-| 播放器 | ArtPlayer + HLS.js |
+| 播放器 | ArtPlayer + HLS.js, `<meta referrer>` 策略 |
 | 状态管理 | Zustand |
+| 关键方案 | 同域部署绕过 CDN Referer ACL, 页面级 no-referrer |
 
 ## 项目结构
 
@@ -91,49 +92,44 @@ WebSocket 地址优先级：localStorage 手动指定 > 生产环境自动推断
 
 ## 生产部署
 
-以下为 1Panel（OpenResty）+ Docker + Debian 环境，域名 `play.example.com` 为例。
+以下为 1Panel（OpenResty）+ Docker 环境两种部署方式。
 
-### 1. 构建前端
+### 方式一：Alist 同域部署（推荐，夸克等云盘必须用此方案）
+
+将 zlplay-web 部署在 Alist 同域的子路径（如 `https://alist.example.com/zlplay`），利用同域绕过 CDN Referer 校验。
+
+**1. 构建前端**
 
 ```bash
 cd web && npm run build
 ```
 
-将 `web/dist/index.html` 放到服务器 `/opt/zlplay-web/web/dist/`。
-
-### 2. 启动同步服务
+**2. 放置静态文件**
 
 ```bash
-cd /opt/zlplay-web/server
-
-# 确保 docker-compose.yml 中 sync-server 的端口映射为：
-#   ports:
-#     - "8080:8080"
-
-docker-compose up -d
-curl localhost:8080/health    # 应返回 {"status":"ok"}
+mkdir -p /www/sites/alist.example.com/index/zlplay
+# 将 web/dist/index.html 放入该目录
 ```
 
-### 3. 配置 1Panel 网站
+**3. 启动同步服务**
 
-3.1 在 1Panel 中创建静态网站：
+```bash
+cd server && docker-compose up -d
+```
 
-| 字段 | 值 |
-|---|---|
-| 域名 | `play.example.com` |
-| 网站目录 | `/opt/zlplay-web/web/dist` |
+**4. 配置 OpenResty**
 
-3.2 在同一个网站中添加反向代理：
-
-| 字段 | 值 |
-|---|---|
-| 代理路径 | `/ws` |
-| 目标地址 | `http://127.0.0.1:8080` |
-| WebSocket | 开启 |
-
-或者手动编辑网站配置，在 `server` 块中添加：
+在 Alist 域名的网站配置中，`include /*.conf` **之前**插入：
 
 ```nginx
+# zlplay-web 页面（必须放在 Alist 代理前面）
+location /zlplay {
+    alias /www/sites/alist.example.com/index/zlplay/;
+    index index.html;
+    try_files $uri /zlplay/index.html;
+}
+
+# WebSocket 同步
 location /ws {
     proxy_pass http://127.0.0.1:8080;
     proxy_http_version 1.1;
@@ -144,18 +140,87 @@ location /ws {
 }
 ```
 
-### 4. SSL 证书
+**5. 修改 Alist 反向代理规则**
 
-1Panel → 网站 → `play.example.com` → 证书 → 申请 Let's Encrypt。
+将原来的 `location ^~ /` 去掉 `^~`，改为 `location /`。否则 nginx 的 `^~` 优先级高于普通前缀匹配，`/zlplay` 和 `/ws` 不会生效。
 
-### 5. 更新
+**6. 重载 OpenResty**
+
+访问 `https://alist.example.com/zlplay` 使用。
+
+### 方式二：独立域名部署（仅限无 Referer ACL 的视频源）
+
+适用于自有存储、本地文件等无 CDN Referer 校验的场景。
+
+| 字段 | 值 |
+|---|---|
+| 域名 | `play.example.com` |
+| 网站类型 | 静态网站 |
+| 网站目录 | `/opt/zlplay-web/web/dist` |
+
+添加反向代理 `/ws` → `http://127.0.0.1:8080`（开启 WebSocket）。
+
+### SSL 证书
+
+1Panel → 网站 → 证书 → 申请 Let's Encrypt。
+
+### 更新
 
 ```bash
+cd /opt/zlplay-web/web && npm run build
+# 将 dist/index.html 上传到网站目录覆盖
+# 同步服务如有更新：
 cd /opt/zlplay-web/server
-docker-compose down
-docker-compose pull        # 如果使用镜像
-docker-compose up -d --build
+docker-compose down && docker-compose pull && docker-compose up -d
 ```
+
+## 云盘视频播放（夸克等）
+
+### 问题背景
+
+夸克等云盘的 CDN 有 Referer ACL 校验（`x-tengine-error: denied by Referer ACL`）。如果 zlplay-web 部署在独立域名（如 `play.example.com`），`<video>` 标签跨域加载 CDN 直链时会带上 `Referer: https://play.example.com/`，被 CDN 拒绝返回 403。
+
+即使使用 `<video referrerpolicy="no-referrer">` 元素属性，Chrome/Edge 对此支持不稳定，请求中仍可能携带 Referer。
+
+### 解决方案
+
+**将 zlplay-web 部署到 Alist 同域的子路径下**（如 `https://alist.example.com/zlplay`），配合页面级 Referer 策略。
+
+```
+关键配置：
+
+1. 页面级禁止 Referer（vite.config.ts）:
+   <meta name="referrer" content="no-referrer" />
+
+2. 视频直链走 Alist raw_url（/api/fs/get）:
+   同域下 Referer 规则一致，CDN 不会拦截
+
+3. OpenResty 配置（location / 前插入）:
+   location /zlplay { alias /www/sites/xxx/index/zlplay/; ... }
+   location /ws    { proxy_pass http://127.0.0.1:8080; ... }
+   location /      { proxy_pass http://127.0.0.1:5244; ... }  # Alist
+   
+   注意：Alist 反向代理的 location 不能用 ^~ 修饰符，否则 /zlplay 和 /ws 无法匹配。
+```
+
+### 为什么不直接用代理
+
+其他方案对比：
+
+| 方案 | 问题 |
+|------|------|
+| `referrerpolicy` 属性 | Chrome/Edge 不完全支持 |
+| 服务端流代理 (pipe) | 视频数据经过服务器，消耗带宽 |
+| 302 重定向代理 | 同域无意义，跨域无效 |
+| **同域部署 + meta referrer** ✅ | 零带宽、零延迟，CDN 直连 |
+
+### 排查方法
+
+打开 DevTools → Network，找到 `drive.quark.cn` 的请求：
+
+- 请求头有 `referer` → Referer 未屏蔽，检查 `<meta>` 标签是否正确插入
+- `sec-fetch-site: cross-site` 且无 `referer` → 正常，CDN 应放行
+- 状态码 403 + `denied by Referer ACL` → 仍有 Referer 或部署不在同域
 
 ## Docker 镜像
 

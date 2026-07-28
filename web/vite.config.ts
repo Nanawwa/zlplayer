@@ -9,20 +9,19 @@ export default defineConfig({
     {
       name: 'html-transform',
       transformIndexHtml(html) {
-        return html.replace(
+        html = html.replace(
           '<link rel="icon" type="image/svg+xml" href="/vite.svg" />',
-          '<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎬</text></svg>" />'
+          '<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%233B82F6%22 stroke-width=%222%22><polygon points=%225 3 19 12 5 21 5 3%22/></svg>" />'
         );
+        html = html.replace('</head>', '<meta name="referrer" content="no-referrer" /></head>');
+        return html;
       },
     },
   ],
   server: {
     port: 5173,
     proxy: {
-      '/ws': {
-        target: 'ws://localhost:8080',
-        ws: true,
-      },
+      '/ws': { target: 'ws://localhost:8080', ws: true },
     },
   },
 });
