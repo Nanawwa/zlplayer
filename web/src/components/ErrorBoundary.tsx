@@ -19,10 +19,10 @@ export default class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-gray-950 flex items-center justify-center p-8">
+        <div className="min-h-screen bg-base flex items-center justify-center p-8">
           <div className="text-center max-w-md">
-            <h1 className="text-2xl font-bold text-red-400 mb-4">应用崩溃</h1>
-            <p className="text-gray-400 mb-4 text-sm break-all">
+            <h1 className="font-display text-2xl font-bold text-[#EF4444] mb-4">应用崩溃</h1>
+            <p className="text-secondary mb-6 text-sm break-all">
               {this.state.error?.message || '未知错误'}
             </p>
             <button
@@ -30,7 +30,7 @@ export default class ErrorBoundary extends Component<Props, State> {
                 this.setState({ hasError: false, error: null });
                 window.location.reload();
               }}
-              className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
+              className="px-5 py-2.5 bg-[var(--primary-500)] text-white rounded-lg hover:bg-[var(--primary-600)] hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
               重新加载
             </button>

@@ -105,7 +105,7 @@ async function alistRequest<T>(
     'Content-Type': 'application/json',
   };
   if (token) {
-    headers['Authorization'] = token;
+    headers['Authorization'] = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
   }
 
   const url = `${baseUrl}/api/${endpoint}`;
@@ -209,8 +209,13 @@ export async function getPlayUrl(path: string): Promise<string> {
     if (info.code === 200 && info.data?.raw_url) {
       return info.data.raw_url;
     }
+    // API 返回了但无 raw_url（可能是权限/文件不存在）
+    if (info.code !== 200) {
+      throw new Error(`Alist API 错误 (code=${info.code}): ${info.message || '未知'}`);
+    }
   } catch (e) {
-    console.warn('[Alist] /api/fs/get 失败:', e);
+    if (e instanceof Error && e.message.includes('Alist API')) throw e;
+    console.warn('[Alist] /api/fs/get 失败，回退 /d/ 路径:', e);
   }
 
   // 回退：/d/ 路径
@@ -257,4 +262,37 @@ export function isVideoFile(filename: string): boolean {
   const ext = filename.toLowerCase().split('.').pop();
   if (!ext) return false;
   return VIDEO_EXTENSIONS.includes(`.${ext}`);
+}
+
+const SUBTITLE_EXTENSIONS = ['.vtt', '.srt', '.ass', '.ssa'];
+
+export function isSubtitleFile(filename: string): boolean {
+  const ext = filename.toLowerCase().split('.').pop();
+  if (!ext) return false;
+  return SUBTITLE_EXTENSIONS.includes(`.${ext}`);
+}
+
+/**
+ * 在文件列表中查找与视频同名的字幕文件
+ */
+export function findSubtitle(items: { name: string }[], videoName: string): string | null {
+  const base = videoName.replace(/\.[^.]+$/, '').toLowerCase();
+  for (const item of items) {
+    const itemBase = item.name.replace(/\.[^.]+$/, '').toLowerCase();
+    if (itemBase === base && isSubtitleFile(item.name)) {
+      return item.name;
+    }
+  }
+  return null;
+}
+
+/**
+ * 获取字幕播放 URL
+ */
+export function getSubtitleUrl(subtitlePath: string): string {
+  const baseUrl = getAlistBaseUrl();
+  const cleanPath = encodeURI(subtitlePath.startsWith('/') ? subtitlePath : `/${subtitlePath}`);
+  const token = getAlistToken();
+  const query = token ? `?token=${encodeURIComponent(token)}` : '';
+  return `${baseUrl}/d${cleanPath}${query}`;
 }

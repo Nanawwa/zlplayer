@@ -40,6 +40,12 @@ interface RoomState {
   /** 连接错误 */
   wsError: string | null;
 
+  /** 上次测量的 RTT（秒），由 useWebSocket 心跳更新 */
+  wsRtt: number;
+
+  /** 当前房间密码（用于断线重连重新加入，localStorage 持久化） */
+  roomPassword: string;
+
   /** Alist 服务器地址 */
   alistUrl: string;
 
@@ -87,6 +93,12 @@ interface RoomState {
   /** 设置可用房间列表 */
   setAvailableRooms: (rooms: RoomSummary[]) => void;
 
+  /** 设置 RTT（秒） */
+  setWsRtt: (rtt: number) => void;
+
+  /** 设置房间密码（持久化到 localStorage） */
+  setRoomPassword: (pw: string) => void;
+
   /** 重置房间状态 */
   resetRoom: () => void;
 }
@@ -103,6 +115,8 @@ const initialRoom = {
   playerState: { playing: false, position: 0, timestamp: 0 },
   wsConnected: false,
   wsError: null,
+  wsRtt: 0.1,
+  roomPassword: (() => { try { return localStorage.getItem('zlplay_room_password') || ''; } catch { return ''; } })(),
   alistUrl: localStorage.getItem('zlplay_alist_url') || (import.meta.env.VITE_DEFAULT_ALIST_URL as string) || '',
   availableRooms: [],
 };
@@ -147,7 +161,15 @@ export const useRoomStore = create<RoomState>((set) => ({
 
   setAvailableRooms: (rooms) => set({ availableRooms: rooms }),
 
-  resetRoom: () =>
+  setWsRtt: (rtt) => set({ wsRtt: rtt }),
+
+  setRoomPassword: (pw) => {
+    try { localStorage.setItem('zlplay_room_password', pw); } catch { /* ignore */ }
+    set({ roomPassword: pw });
+  },
+
+  resetRoom: () => {
+    try { localStorage.removeItem('zlplay_room_password'); } catch { /* ignore */ }
     set({
       currentPage: 'home',
       roomCode: '',
@@ -158,5 +180,7 @@ export const useRoomStore = create<RoomState>((set) => ({
       currentVideo: null,
       playerState: { playing: false, position: 0, timestamp: 0 },
       wsError: null,
-    }),
+      roomPassword: '',
+    });
+  },
 }));

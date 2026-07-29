@@ -1,16 +1,16 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
+import { useRoomStore } from '../store/roomStore';
 import {
   type SyncStatus,
+  type RemoteState,
   SYNC_CONFIG,
-  RTTTracker,
   compensatePosition,
   calcDeviation,
   calcPlaybackRate,
-  nowSeconds,
   unixMs,
 } from '../utils/syncProtocol';
 
-//Player API
+// Player API
 
 export interface PlayerAPI {
   play(): Promise<void>;
@@ -37,7 +37,7 @@ export interface RemoteSyncCommand {
   members?: unknown[];
 }
 
-//Hook
+// Hook
 
 interface UseSyncOptions {
   /** 发送 WS 消息 */
@@ -64,12 +64,18 @@ interface UseSyncReturn {
 export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSyncReturn {
   const playerRef = useRef<PlayerAPI | null>(null);
   const syncingRef = useRef(0); // 计数器而非布尔，防止嵌套 syncLock 竞态
-  const remoteRef = useRef({ position: 0, playing: false, timestamp: 0 });
+  const syncLockTimeoutsRef = useRef<number[]>([]);
+  const remoteRef = useRef<RemoteState>({
+    playing: false,
+    originalPosition: 0,
+    originalServerTimestamp: 0,
+    localArrivalTime: 0,
+  });
   const statusRef = useRef<SyncStatus>('idle');
-  const rttTracker = useRef(new RTTTracker());
   const calibrateTimer = useRef<number | null>(null);
-  const heartbeatTimer = useRef<number | null>(null);
-  const missedBeats = useRef(0);
+  const recoverTimer = useRef<number | null>(null);
+  // 网络停滞安全网：连续多次校准跳过（缓冲/隐藏/无 pong）则标记 desynced
+  const stallCountRef = useRef(0);
 
   const [status, setStatus] = useState<SyncStatus>('idle');
   const [deviation, setDeviation] = useState(0);
@@ -80,21 +86,24 @@ export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSy
     setStatus(s);
   }, []);
 
-  //register player
+  // register player
   const registerPlayer = useCallback((api: PlayerAPI | null) => {
     playerRef.current = api;
   }, []);
 
-  //sync lock (防止回环广播)
+  // sync lock (防止回环广播)；超时 timer 统一收集，unmount 清理
   const syncing = useCallback(() => syncingRef.current > 0, []);
 
   const syncLock = useCallback((fn: () => void, duration = 300) => {
     syncingRef.current++;
     fn();
-    setTimeout(() => { syncingRef.current = Math.max(0, syncingRef.current - 1); }, duration);
+    const id = window.setTimeout(() => {
+      syncingRef.current = Math.max(0, syncingRef.current - 1);
+    }, duration);
+    syncLockTimeoutsRef.current.push(id);
   }, []);
 
-  //send local command
+  // send local command
   const sendCommand = useCallback(
     (type: string, extra: Record<string, unknown> = {}) => {
       const player = playerRef.current;
@@ -108,98 +117,108 @@ export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSy
     [sendMessage]
   );
 
-  //apply remote command
+  // 读取当前 RTT（来自 store，由 useWebSocket 心跳更新）
+  const getRtt = useCallback(() => useRoomStore.getState().wsRtt, []);
+
+  // apply remote command
   const applyRemote = useCallback(
     (cmd: RemoteSyncCommand) => {
       const player = playerRef.current;
       if (!player) return;
 
-      const rtt = rttTracker.current.current;
+      const rtt = getRtt();
 
-      if (cmd.type === 'play') {
-        const pos = compensatePosition(
-          cmd.position ?? remoteRef.current.position,
-          cmd.clientTimestamp ?? Date.now(),
-          true,
-          rtt
-        );
-        remoteRef.current = { position: pos, playing: true, timestamp: Date.now() };
-        setRemotePosition(pos);
+      if (cmd.type === 'play' || cmd.type === 'pause' || cmd.type === 'seek') {
+        const rawPos = cmd.position ?? remoteRef.current.originalPosition;
+        const ts = cmd.clientTimestamp ?? Date.now();
+        const isPlaying = cmd.type === 'play' || (cmd.type === 'seek' && remoteRef.current.playing);
+
+        // remoteRef 存未补偿原始数据，供 calibrate 推算
+        remoteRef.current = {
+          playing: isPlaying,
+          originalPosition: rawPos,
+          originalServerTimestamp: ts,
+          localArrivalTime: Date.now(),
+        };
+        setRemotePosition(rawPos);
+
+        // 当前 seek 目标用 compensatePosition 即时补偿（rtt/2）
+        const targetPos = compensatePosition(rawPos, ts, isPlaying, rtt);
 
         syncLock(() => {
-          if (Math.abs(player.getCurrentTime() - pos) > SYNC_CONFIG.SEEK_THRESHOLD) {
-            player.seek(pos);
+          if (Math.abs(player.getCurrentTime() - targetPos) > SYNC_CONFIG.SEEK_THRESHOLD) {
+            player.seek(targetPos);
           }
           player.setPlaybackRate(1.0);
-          player.play();
+          if (cmd.type === 'play') player.play();
+          else if (cmd.type === 'pause') player.pause();
+          // seek: 不改变播放状态
         }, 400);
-      } else if (cmd.type === 'pause') {
-        const pos = cmd.position ?? remoteRef.current.position;
-        remoteRef.current = { position: pos, playing: false, timestamp: Date.now() };
-        setRemotePosition(pos);
 
-        syncLock(() => {
-          if (Math.abs(player.getCurrentTime() - pos) > SYNC_CONFIG.SEEK_THRESHOLD) {
-            player.seek(pos);
-          }
-          player.setPlaybackRate(1.0);
-          player.pause();
-        }, 400);
-      } else if (cmd.type === 'seek') {
-        const pos = compensatePosition(
-          cmd.position ?? remoteRef.current.position,
-          cmd.clientTimestamp ?? Date.now(),
-          remoteRef.current.playing,
-          rtt
-        );
-        remoteRef.current.position = pos;
-        setRemotePosition(pos);
-
-        syncLock(() => {
-          player.seek(pos);
-          player.setPlaybackRate(1.0);
-        }, 600);
+        setSyncStatus('synced');
+      } else if (cmd.type === 'change_video') {
+        const store = useRoomStore.getState();
+        store.setCurrentVideo({ url: cmd.videoUrl || '', title: cmd.title || '' });
+        store.setPlayerState({ playing: false, position: 0, timestamp: Date.now() });
+        remoteRef.current = {
+          playing: false,
+          originalPosition: 0,
+          originalServerTimestamp: Date.now(),
+          localArrivalTime: Date.now(),
+        };
+        setRemotePosition(0);
+        setSyncStatus('synced');
       } else if (cmd.type === 'sync_response') {
         const isPlaying = cmd.status === 'playing';
-        const pos = isPlaying
-          ? compensatePosition(cmd.position ?? 0, cmd.serverTimestamp ?? Date.now(), true, rtt)
-          : (cmd.position ?? 0);
+        const rawPos = cmd.position ?? 0;
+        const ts = cmd.serverTimestamp ?? Date.now();
 
-        remoteRef.current = { position: pos, playing: isPlaying, timestamp: Date.now() };
-        setRemotePosition(pos);
+        remoteRef.current = {
+          playing: isPlaying,
+          originalPosition: rawPos,
+          originalServerTimestamp: ts,
+          localArrivalTime: Date.now(),
+        };
+        setRemotePosition(rawPos);
+
+        const targetPos = compensatePosition(rawPos, ts, isPlaying, rtt);
 
         syncLock(() => {
-          player.seek(pos);
+          player.seek(targetPos);
           player.setPlaybackRate(1.0);
-          if (isPlaying) {
-            player.play();
-          } else {
-            player.pause();
-          }
+          if (isPlaying) player.play();
+          else player.pause();
         }, 500);
 
         setSyncStatus('synced');
       }
     },
-    [syncLock, setSyncStatus]
+    [syncLock, setSyncStatus, getRtt]
   );
 
-  //calibration loop
+  // calibration loop
   const calibrate = useCallback(() => {
     const player = playerRef.current;
     if (!player || syncingRef.current > 0) return;
     if (statusRef.current !== 'synced' && statusRef.current !== 'recovering') return;
-    if (player.isBuffering()) return; // 缓冲中不校准
-    if (document.hidden) return;       // 页面不可见不校准
+
+    // 缓冲中 / 页面不可见：跳过并累计停滞计数
+    if (player.isBuffering() || document.hidden) {
+      stallCountRef.current++;
+      if (stallCountRef.current >= SYNC_CONFIG.MAX_MISSED_HEARTBEATS) {
+        setSyncStatus('desynced');
+      }
+      return;
+    }
 
     const local = player.getCurrentTime();
-    const remote = remoteRef.current.position;
+    const remote = remoteRef.current;
 
-    // 如果远端正在播放，推算远端当前位置
-    let target = remote;
-    if (remoteRef.current.playing) {
-      const elapsed = (Date.now() - remoteRef.current.timestamp) / 1000;
-      target = remote + elapsed;
+    // 用原始未补偿数据推算远端当前位置（elapsed 自消息发出起算）
+    let target = remote.originalPosition;
+    if (remote.playing) {
+      const elapsed = (Date.now() - remote.originalServerTimestamp) / 1000;
+      target = remote.originalPosition + elapsed;
     }
 
     const dev = calcDeviation(local, target);
@@ -217,13 +236,14 @@ export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSy
         player.seek(target);
         player.setPlaybackRate(1.0);
       }, 600);
-      // 恢复后回到 synced
-      setTimeout(() => {
+      if (recoverTimer.current) clearTimeout(recoverTimer.current);
+      recoverTimer.current = window.setTimeout(() => {
         if (statusRef.current === 'recovering') setSyncStatus('synced');
       }, 800);
     } else {
       // 小偏差：调整速率
       setSyncStatus('synced');
+      stallCountRef.current = 0;
       const rate = calcPlaybackRate(dev);
       if (Math.abs(player.getPlaybackRate() - rate) > 0.01) {
         player.setPlaybackRate(rate);
@@ -231,13 +251,13 @@ export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSy
     }
   }, [syncLock, setSyncStatus]);
 
-  //player event handlers (user actions → send)
+  // player event handlers (user actions → send)
   const handlePlayerPlay = useCallback(() => {
     if (syncingRef.current > 0) return;
     sendCommand('play');
     remoteRef.current.playing = true;
-    remoteRef.current.position = playerRef.current?.getCurrentTime() ?? 0;
-    remoteRef.current.timestamp = Date.now();
+    remoteRef.current.originalPosition = playerRef.current?.getCurrentTime() ?? 0;
+    remoteRef.current.originalServerTimestamp = Date.now();
     setSyncStatus('synced');
   }, [sendCommand, setSyncStatus]);
 
@@ -245,16 +265,16 @@ export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSy
     if (syncingRef.current > 0) return;
     sendCommand('pause');
     remoteRef.current.playing = false;
-    remoteRef.current.position = playerRef.current?.getCurrentTime() ?? 0;
-    remoteRef.current.timestamp = Date.now();
+    remoteRef.current.originalPosition = playerRef.current?.getCurrentTime() ?? 0;
+    remoteRef.current.originalServerTimestamp = Date.now();
     setSyncStatus('synced');
   }, [sendCommand, setSyncStatus]);
 
   const handlePlayerSeeked = useCallback(() => {
     if (syncingRef.current > 0) return;
     sendCommand('seek');
-    remoteRef.current.position = playerRef.current?.getCurrentTime() ?? 0;
-    remoteRef.current.timestamp = Date.now();
+    remoteRef.current.originalPosition = playerRef.current?.getCurrentTime() ?? 0;
+    remoteRef.current.originalServerTimestamp = Date.now();
     setSyncStatus('synced');
   }, [sendCommand, setSyncStatus]);
 
@@ -265,9 +285,9 @@ export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSy
     }
   }, [connected, setSyncStatus]);
 
-  //calibrate interval
+  // calibrate interval：connected 即常驻，calibrate 内部用 statusRef 门控
   useEffect(() => {
-    if (!connected || statusRef.current === 'idle') return;
+    if (!connected) return;
 
     calibrateTimer.current = window.setInterval(() => {
       calibrate();
@@ -278,41 +298,19 @@ export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSy
     };
   }, [connected, calibrate]);
 
-  //heartbeat
-  useEffect(() => {
-    if (!connected) return;
-
-    heartbeatTimer.current = window.setInterval(() => {
-      rttTracker.current.ping();
-      sendMessage('ping', {});
-      missedBeats.current++;
-
-      if (missedBeats.current >= SYNC_CONFIG.MAX_MISSED_HEARTBEATS) {
-        setSyncStatus('desynced');
-      }
-    }, SYNC_CONFIG.HEARTBEAT_INTERVAL * 1000);
-
-    return () => {
-      if (heartbeatTimer.current) clearInterval(heartbeatTimer.current);
-    };
-  }, [connected, sendMessage, setSyncStatus]);
-
-  //visibility change: recover from system interruptions (phone calls, etc.)
+  // visibility change: recover from system interruptions
   useEffect(() => {
     const handler = () => {
       if (document.hidden) return;
       if (statusRef.current === 'idle' || !playerRef.current) return;
 
       const player = playerRef.current;
-      // 页面恢复可见：校准位置
       calibrate();
-      missedBeats.current = 0;
+      stallCountRef.current = 0;
 
-      // 如果远端在播放但本地暂停了（系统打断），尝试恢复
+      // 远端在播放但本地暂停了（系统打断），尝试恢复
       if (remoteRef.current.playing && player.isPaused()) {
         player.play().catch(() => {
-          // autoplay blocked by browser, status stays paused
-          // 发送本地暂停状态让远端也知道
           setSyncStatus('synced');
           remoteRef.current.playing = false;
           sendMessage('pause', {
@@ -326,15 +324,15 @@ export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSy
     return () => document.removeEventListener('visibilitychange', handler);
   }, [calibrate, sendMessage, setSyncStatus]);
 
-  //public API
+  // public API
   const handleRemoteCommand = useCallback(
     (cmd: RemoteSyncCommand) => {
-      // 忽略自己发出的消息
-      if (cmd.senderId === myId) return;
+      // 忽略自己发出的指令（唯一过滤点）
+      if (cmd.senderId && cmd.senderId === myId) return;
 
       if (cmd.type === 'pong') {
-        rttTracker.current.pong();
-        missedBeats.current = 0;
+        // 心跳响应：重置停滞计数
+        stallCountRef.current = 0;
         return;
       }
 
@@ -345,17 +343,31 @@ export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSy
 
   const onRoomEnter = useCallback(() => {
     setSyncStatus('waiting');
-    missedBeats.current = 0;
+    stallCountRef.current = 0;
   }, [setSyncStatus]);
 
   const onRoomLeave = useCallback(() => {
     setSyncStatus('idle');
-    remoteRef.current = { position: 0, playing: false, timestamp: 0 };
+    remoteRef.current = {
+      playing: false,
+      originalPosition: 0,
+      originalServerTimestamp: 0,
+      localArrivalTime: 0,
+    };
     setDeviation(0);
     setRemotePosition(0);
-    // 恢复正常速率
     playerRef.current?.setPlaybackRate(1.0);
   }, [setSyncStatus]);
+
+  // unmount 清理所有定时器
+  useEffect(() => {
+    return () => {
+      syncLockTimeoutsRef.current.forEach(clearTimeout);
+      syncLockTimeoutsRef.current = [];
+      if (calibrateTimer.current) clearInterval(calibrateTimer.current);
+      if (recoverTimer.current) clearTimeout(recoverTimer.current);
+    };
+  }, []);
 
   return {
     status,
@@ -365,7 +377,6 @@ export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSy
     handleRemoteCommand,
     onRoomEnter,
     onRoomLeave,
-    // expose for VideoPlayer to subscribe to player events
     handlePlayerPlay,
     handlePlayerPause,
     handlePlayerSeeked,

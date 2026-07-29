@@ -37,25 +37,20 @@ export interface ChangeVideoMessage {
   senderId: string;
 }
 
-export interface SyncResponseMessage {
-  type: 'sync_response';
-  videoUrl: string | null;
-  title: string | null;
-  status: 'playing' | 'paused';
-  position: number;
-  playbackRate: number;
-  serverTimestamp: number;
-  members: unknown[];
-  ownerId: string;
+/**
+ * 远端播放状态的本地缓存（未补偿的原始数据）
+ * 用于 calibrate 时推算远端当前播放位置，避免二次补偿。
+ */
+export interface RemoteState {
+  /** 远端是否正在播放 */
+  playing: boolean;
+  /** 远端发来的原始位置（秒），不做任何补偿 */
+  originalPosition: number;
+  /** 远端捕获该位置时的时间戳（Date.now() 毫秒） */
+  originalServerTimestamp: number;
+  /** 我方收到该消息的本地时间（Date.now() 毫秒） */
+  localArrivalTime: number;
 }
-
-/** 同步控制消息联合类型 */
-export type SyncCommand =
-  | PlayMessage
-  | PauseMessage
-  | SeekMessage
-  | ChangeVideoMessage
-  | SyncResponseMessage;
 
 // 同步状态
 
@@ -100,47 +95,9 @@ export const SYNC_CONFIG = {
 
 // 时间戳工具
 
-/** 获取高精度本地时间（秒），用于时间差计算 */
-export function nowSeconds(): number {
-  return performance.now() / 1000;
-}
-
 /** 获取 Unix 毫秒时间戳，用于跨端传输 */
 export function unixMs(): number {
   return Date.now();
-}
-
-// RTT 计算
-
-/** RTT 追踪器 */
-export class RTTTracker {
-  private samples: number[] = [];
-  private lastPingTime = 0;
-  private _current = 0.1; // 默认 100ms
-
-  /** 开始一次 ping 测量 */
-  ping() {
-    this.lastPingTime = performance.now();
-  }
-
-  /** 收到 pong，记录 RTT */
-  pong() {
-    const rtt = (performance.now() - this.lastPingTime) / 1000;
-    this.samples.push(rtt);
-    if (this.samples.length > 10) this.samples.shift();
-    // 指数加权移动平均
-    this._current = this._current * 0.7 + rtt * 0.3;
-  }
-
-  /** 当前估算 RTT（秒） */
-  get current(): number {
-    return this._current;
-  }
-
-  /** RTT 是否异常 */
-  get isHighLatency(): boolean {
-    return this._current > SYNC_CONFIG.MAX_RTT;
-  }
 }
 
 // 延迟补偿
@@ -148,33 +105,36 @@ export class RTTTracker {
 /**
  * 计算延迟补偿后的目标位置
  *
+ * 用 RTT/2（单向延迟）估计消息在网络传输期间远端视频继续播放的量。
+ * 采用 RTT 而非 Date.now()-remoteTimestamp，因为后者依赖跨端时钟同步，
+ * 客户端与服务器/其他客户端时钟不一致时会产生错误补偿。
+ *
  * @param remotePosition  远端发来的播放位置（秒）
- * @param remoteTimestamp 远端发来的时间戳（Date.now() 毫秒）
+ * @param _remoteTimestamp 远端时间戳（保留参数兼容，不再使用）
  * @param isPlaying       远端是否正在播放
  * @param rtt             当前估算 RTT（秒）
  * @returns 补偿后的实际应跳转位置（秒）
  */
 export function compensatePosition(
   remotePosition: number,
-  remoteTimestamp: number,
+  _remoteTimestamp: number,
   isPlaying: boolean,
   rtt: number,
 ): number {
   if (!isPlaying) return remotePosition;
 
-  // 从远端发来到我方收到，经历的时间 ≈ RTT/2
-  // 这段时间内远端视频继续播放，所以需要加上这段时间的播放量
-  const elapsed = (Date.now() - remoteTimestamp) / 1000;
-  const delay = Math.min(Math.max(0, elapsed), 60); // 最多补偿 60 秒
-
-  return remotePosition + delay;
+  // 单向延迟 ≈ RTT / 2，这段时间内远端视频仍在播放
+  const oneWayDelay = Math.max(0, rtt / 2);
+  // 上限 2 秒，防止陈旧数据导致过度补偿
+  return Math.min(remotePosition + oneWayDelay, remotePosition + 2.0);
 }
 
 /**
  * 计算本地与远端的偏差
- * @returns 偏差（秒），正数 = 本地超前，负数 = 本地落后
+ * @returns 偏差（秒），正数 = 本地超前，负数 = 本地落后；任一无效返回 0
  */
 export function calcDeviation(localPosition: number, remotePosition: number): number {
+  if (!Number.isFinite(localPosition) || !Number.isFinite(remotePosition)) return 0;
   return localPosition - remotePosition;
 }
 

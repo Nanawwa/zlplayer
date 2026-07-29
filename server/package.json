@@ -9,6 +9,9 @@
   },
   "keywords": ["websocket", "video-sync", "alist"],
   "license": "MIT",
+  "engines": {
+    "node": ">=16"
+  },
   "dependencies": {
     "ws": "^8.18.0",
     "dotenv": "^16.4.5"

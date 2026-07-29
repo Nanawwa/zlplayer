@@ -35,38 +35,85 @@ export default function ChatBox({ sendMessage }: ChatBoxProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0"
-        style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}>
+      {/* 消息列表 */}
+      <div
+        className="flex-1 overflow-y-auto p-2 min-h-0"
+        style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}
+      >
         {chatMessages.length === 0 && (
-          <div className="text-center text-gray-400 dark:text-gray-500 text-xs py-8">
-            暂无消息
+          <div className="text-center text-secondary text-xs py-8">
+            暂无消息，发一条试试吧
           </div>
         )}
-        {chatMessages.map((msg, i) => {
-          const isMe = msg.senderId === myId;
-          return (
-            <div key={`${msg.timestamp}-${i}`} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm
-                ${isMe ? 'bg-blue-500 text-white rounded-br-md' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-bl-md'}`}>
-                {!isMe && <div className="text-xs text-blue-400 font-medium mb-0.5">{msg.senderName}</div>}
-                <div className="break-words">{msg.message}</div>
-                <div className={`text-xs mt-1 ${isMe ? 'text-white/70' : 'text-gray-400'}`}>{fmtTime(msg.timestamp)}</div>
+
+        <div className="space-y-1">
+          {chatMessages.map((msg, i) => {
+            const isMe = msg.senderId === myId;
+            const prev = chatMessages[i - 1];
+            // 连续同人消息合并：与上一条同人则不显示昵称 + 减小间距
+            const isContinuation =
+              prev && prev.senderId === msg.senderId &&
+              (msg.timestamp - prev.timestamp) < 60000;
+
+            return (
+              <div
+                key={`${msg.timestamp}-${i}`}
+                className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${isContinuation ? '' : 'mt-2'}`}
+              >
+                <div className={`max-w-[80%] ${isMe ? 'items-end' : 'items-start'} flex flex-col`}>
+                  {!isMe && !isContinuation && (
+                    <div className="text-xs text-primary-500 font-medium mb-0.5 ml-3">
+                      {msg.senderName}
+                    </div>
+                  )}
+                  <div
+                    className={`px-3 py-2 text-sm break-words ${
+                      isMe
+                        ? 'bg-[var(--primary-500)] text-white rounded-[12px] rounded-br-md'
+                        : 'bg-elevated text-primary rounded-[12px] rounded-bl-md'
+                    }`}
+                  >
+                    {msg.message}
+                  </div>
+                  <div
+                    className={`text-[10px] text-secondary mt-1 ${
+                      isMe ? 'mr-1' : 'ml-3'
+                    }`}
+                  >
+                    {fmtTime(msg.timestamp)}
+                  </div>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="px-2.5 py-2 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
-        <div className="flex gap-2">
-          <input ref={inputRef} type="text" value={input}
-            onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown}
-            placeholder="输入消息..." maxLength={500}
-            className="flex-1 px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-800 dark:text-gray-200 placeholder-gray-400" />
-          <button onClick={handleSend} disabled={!input.trim()}
-            className="px-4 py-1.5 bg-blue-500 text-white text-sm rounded-full hover:bg-blue-600 disabled:opacity-40 transition-colors">
-            发送
+      {/* 输入区 */}
+      <div className="px-2.5 py-2 border-t border-base flex-shrink-0">
+        <div className="flex gap-2 items-center">
+          <input
+            ref={inputRef}
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="输入消息..."
+            maxLength={500}
+            className="flex-1 px-4 py-2.5 text-sm bg-elevated text-primary placeholder-[var(--text-secondary)] rounded-[12px] border border-transparent focus:outline-none focus:border-[var(--primary-500)] transition-colors"
+          />
+          <button
+            onClick={handleSend}
+            disabled={!input.trim()}
+            aria-label="发送"
+            className="flex-shrink-0 w-11 h-11 flex items-center justify-center rounded-full bg-[var(--primary-500)] text-white hover:bg-[var(--primary-600)] hover:scale-[1.05] active:scale-95 disabled:opacity-40 disabled:hover:scale-100 transition-all"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m22 2-7 20-4-9-9-4Z" />
+              <path d="M22 2 11 13" />
+            </svg>
           </button>
         </div>
       </div>

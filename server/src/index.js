@@ -133,6 +133,11 @@ const heartbeatInterval = setInterval(() => {
   }
 }, HEARTBEAT_INTERVAL);
 
+// 定期清理 rateLimiter 过期记录（每 60s）
+const rateLimitCleanup = setInterval(() => {
+  rateLimiter.cleanup();
+}, 60000);
+
 wss.on('connection', (ws) => {
   const clientId = `c_${++connectionCounter}_${Date.now().toString(36)}`;
   ws.id = clientId;       // roomManager.joinRoom 使用 member.id
@@ -375,17 +380,21 @@ function handleMessage(ws, msg) {
             members: getMemberListAfterRemove(room, ws.clientId),
           });
 
-          // 如果房主离开，通知新房主
+          // 如果房主离开，广播 owner_changed 给所有剩余成员
           if (room.ownerId === ws.clientId && room.members.size > 1) {
             const newOwner = [...room.members.values()]
               .filter(m => m.id !== ws.clientId)
               .sort((a, b) => a.joinedAt - b.joinedAt)[0];
 
             if (newOwner) {
-              send(newOwner.ws, 'owner_changed', {
-                ownerId: newOwner.id,
-                message: '房主已离开，你已成为新房主',
-              });
+              for (const [, m] of room.members) {
+                if (m.id !== ws.clientId) {
+                  send(m.ws, 'owner_changed', {
+                    ownerId: newOwner.id,
+                    message: m.id === newOwner.id ? '你已成为新房主' : '房主已变更',
+                  });
+                }
+              }
             }
           }
         }
@@ -525,6 +534,42 @@ function handleMessage(ws, msg) {
         break;
       }
 
+      // ── 权限 ──
+      case 'kick_member': {
+        if (!ws.currentRoom || !payload.memberId) break;
+        const kickRoom = roomManager.getRoom(ws.currentRoom);
+        if (!kickRoom) break;
+        if (kickRoom.ownerId !== ws.clientId) {
+          send(ws, 'error', { message: '仅房主可以踢出成员' });
+          break;
+        }
+        const target = kickRoom.members.get(payload.memberId);
+        if (!target) break;
+        if (target.id === ws.clientId) {
+          send(ws, 'error', { message: '不能踢出自己' });
+          break;
+        }
+
+        // 通知被踢者
+        send(target.ws, 'kicked', { message: '你已被房主移出房间' });
+        target.ws.currentRoom = null;
+        // 关闭被踢者连接
+        target.ws.close(1008, 'Kicked by owner');
+
+        // 通知其他成员
+        roomManager.leaveRoom(ws.currentRoom, payload.memberId);
+        const updatedRoom = roomManager.getRoom(ws.currentRoom);
+        if (updatedRoom) {
+          broadcast(updatedRoom, ws.clientId, 'member_left', {
+            memberId: payload.memberId,
+            members: [...updatedRoom.members.values()].map(m => ({
+              id: m.id, name: m.name, joinedAt: m.joinedAt,
+            })),
+          });
+        }
+        break;
+      }
+
       // ── 心跳 ──
       case 'ping': {
         send(ws, 'pong', { timestamp: Date.now() });
@@ -565,6 +610,7 @@ function shutdown() {
   log('正在关闭服务器...', 'warn');
 
   clearInterval(heartbeatInterval);
+  clearInterval(rateLimitCleanup);
   roomManager.shutdown();
 
   // 通知所有客户端

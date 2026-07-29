@@ -23,7 +23,12 @@ export type WSMessageType =
   | 'error'
   | 'server_shutdown'
   | 'list_rooms'
-  | 'room_list';
+  | 'room_list'
+  // 预留：权限与角色相关
+  | 'kick_member'
+  | 'kicked'
+  | 'mute_member'
+  | 'role_update';
 
 /** 服务器发来的消息 */
 export interface WSMessage {

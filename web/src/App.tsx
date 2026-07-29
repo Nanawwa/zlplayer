@@ -14,7 +14,7 @@ export default function App() {
   const currentPage = useRoomStore((s) => s.currentPage);
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen bg-base">
       {currentPage === 'home' && <HomePage sendMessage={sendMessage} />}
       {currentPage === 'room' && (
         <RoomPage sendMessage={sendMessage} syncHandlerRef={syncHandlerRef} />

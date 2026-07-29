@@ -25,24 +25,41 @@ export default function MobilePanel({ title, onClose, children }: MobilePanelPro
   }, []);
 
   return (
-    <div className="lg:hidden fixed inset-0 z-[200] flex flex-col justify-end"
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="absolute inset-0 bg-black/40" />
-      <div className="relative flex flex-col bg-white dark:bg-gray-900 rounded-t-2xl shadow-2xl border border-gray-200 dark:border-gray-700 border-b-0"
+    <div
+      className="lg:hidden fixed inset-0 z-[200] flex flex-col justify-end"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      {/* 遮罩 */}
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fade-in" />
+
+      {/* 底部弹出面板 */}
+      <div
+        className="relative flex flex-col bg-card rounded-t-[16px] shadow-modal border border-base border-b-0 animate-slide-up"
         style={{ maxHeight: '85dvh', overscrollBehavior: 'contain' }}
-        onClick={e => e.stopPropagation()}>
-        <div className="flex-shrink-0 flex justify-center pt-2 pb-1">
-          <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* 顶部拖拽手柄 */}
+        <div className="flex-shrink-0 flex justify-center pt-2.5 pb-1">
+          <div className="w-10 h-1 rounded-full bg-[var(--border-color)]" />
         </div>
+
+        {/* 标题栏 */}
         <div className="flex-shrink-0 flex items-center justify-between px-4 py-2">
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{title}</h3>
-          <button onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+          <h3 className="font-display text-sm font-semibold text-primary">{title}</h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-full hover:bg-elevated text-secondary hover:text-primary transition-colors"
+            aria-label="关闭"
+          >
             <IconClose size={18} />
           </button>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto"
-          style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}>
+
+        {/* 内容区 */}
+        <div
+          className="flex-1 min-h-0 overflow-y-auto px-4 pb-4"
+          style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}
+        >
           {children}
         </div>
       </div>
