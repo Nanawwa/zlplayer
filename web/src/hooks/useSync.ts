@@ -75,6 +75,10 @@ export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSy
   const recoverTimer = useRef<number | null>(null);
   const stallCountRef = useRef(0);
 
+  // 待处理同步目标：sync_response/change_video 到达时播放器可能尚未就绪（新视频加载中）
+  // 存入此 ref，registerPlayer 时消费
+  const pendingSyncRef = useRef<{ pos: number; playing: boolean } | null>(null);
+
   const [status, setStatus] = useState<SyncStatus>('idle');
   const [deviation, setDeviation] = useState(0);
   const [remotePosition, setRemotePosition] = useState(0);
@@ -86,6 +90,15 @@ export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSy
 
   const registerPlayer = useCallback((api: PlayerAPI | null) => {
     playerRef.current = api;
+    // 如果有待处理的同步目标（sync_response 在播放器就绪前到达），立即消费
+    if (api && pendingSyncRef.current) {
+      const { pos, playing } = pendingSyncRef.current;
+      pendingSyncRef.current = null;
+      api.seek(pos);
+      api.setPlaybackRate(1.0);
+      if (playing) api.play();
+      else api.pause();
+    }
   }, []);
 
   const syncLock = useCallback((fn: () => void, duration = 300) => {
@@ -152,6 +165,8 @@ export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSy
         store.setPlayerState({ playing: false, position: 0, timestamp: Date.now() });
         remoteRef.current = { playing: false, compensatedPosition: 0, localTimestamp: Date.now() };
         setRemotePosition(0);
+        // change_video 后新播放器会通过 registerPlayer 消费此 pending
+        pendingSyncRef.current = { pos: 0, playing: false };
         setSyncStatus('synced');
       } else if (cmd.type === 'sync_response') {
         const isPlaying = cmd.status === 'playing';
@@ -166,6 +181,9 @@ export function useSync({ sendMessage, myId, connected }: UseSyncOptions): UseSy
           localTimestamp: Date.now(),
         };
         setRemotePosition(targetPos);
+
+        // 保存 pending：播放器可能尚未就绪（新视频加载中），由 registerPlayer 消费
+        pendingSyncRef.current = { pos: targetPos, playing: isPlaying };
 
         syncLock(() => {
           player.seek(targetPos);

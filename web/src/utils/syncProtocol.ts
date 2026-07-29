@@ -68,30 +68,30 @@ export type SyncStatus =
 // 配置常量
 
 export const SYNC_CONFIG = {
-  /** 校准间隔（秒） */
-  CALIBRATE_INTERVAL: 1.0,
+  /** 校准间隔（秒）— 2 秒一次避免频繁调整 */
+  CALIBRATE_INTERVAL: 2.0,
 
-  /** 微小偏差阈值：<此值视为已同步，恢复正常速率 */
-  TINY_DEVIATION: 0.05,
+  /** 微小偏差阈值：<此值视为已同步，不调整速率 */
+  TINY_DEVIATION: 0.3,
 
-  /** seek 阈值：偏差超过此值直接 seek */
-  SEEK_THRESHOLD: 0.5,
+  /** seek 阈值：偏差超过此值直接 seek（提高至 2s，减少可见跳动） */
+  SEEK_THRESHOLD: 2.0,
 
   /** 失去同步阈值：偏差超过此值标记 DESYNCED */
-  DESYNC_THRESHOLD: 5.0,
+  DESYNC_THRESHOLD: 8.0,
 
-  /** 速率调整比例增益（0.3 避免振荡） */
-  RATE_KP: 0.3,
+  /** 速率调整比例增益（降低至 0.12 避免频繁变速） */
+  RATE_KP: 0.12,
 
-  /** 最小/最大播放速率 */
-  MIN_RATE: 0.5,
-  MAX_RATE: 2.0,
+  /** 最小/最大播放速率（收窄范围，避免可感知的变速） */
+  MIN_RATE: 0.85,
+  MAX_RATE: 1.15,
 
   /** 心跳间隔（秒） */
   HEARTBEAT_INTERVAL: 30,
 
-  /** 连续心跳失败次数 → DESYNCED */
-  MAX_MISSED_HEARTBEATS: 3,
+  /** 连续校准跳过次数 → DESYNCED（2s × 6 = 12s 无响应） */
+  MAX_MISSED_HEARTBEATS: 6,
 
   /** RTT 上限（秒），超过视为网络异常 */
   MAX_RTT: 2.0,
