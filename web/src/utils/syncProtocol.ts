@@ -38,18 +38,22 @@ export interface ChangeVideoMessage {
 }
 
 /**
- * 远端播放状态的本地缓存（未补偿的原始数据）
- * 用于 calibrate 时推算远端当前播放位置，避免二次补偿。
+ * 远端播放状态的本地缓存
+ *
+ * 关键设计：
+ * - `compensatedPosition` 是应用 compensatePosition(rtt/2) 后的位置，
+ *   表示"消息到达瞬间，远端实际播放到了哪里"的最佳估计（与时钟偏差无关）。
+ * - `localTimestamp` 是该补偿时刻的**本地** Date.now()，
+ *   calibrate 用本地时间差推算"补偿后位置 + 已过时间" = 当前远端位置。
+ * - 全部用本地时间，彻底避免跨端时钟偏差导致的 seek 抖动。
  */
 export interface RemoteState {
   /** 远端是否正在播放 */
   playing: boolean;
-  /** 远端发来的原始位置（秒），不做任何补偿 */
-  originalPosition: number;
-  /** 远端捕获该位置时的时间戳（Date.now() 毫秒） */
-  originalServerTimestamp: number;
-  /** 我方收到该消息的本地时间（Date.now() 毫秒） */
-  localArrivalTime: number;
+  /** 补偿后的远端位置（秒），已应用 RTT/2 单向延迟补偿 */
+  compensatedPosition: number;
+  /** 补偿时刻的本地时间戳（Date.now() 毫秒） */
+  localTimestamp: number;
 }
 
 // 同步状态
